@@ -3,7 +3,7 @@
  *
  * Description: Defines and implements data structures.
  * Author: Mayank Sindwani
- * Date: 2015-09-10
+ * Date: 2015-09-18
  */
 
 #ifndef __COLLECTION_SPP_H__

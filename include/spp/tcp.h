@@ -3,7 +3,7 @@
  *
  * Description: Defines a server instance using TCP sockets.
  * Author: Mayank Sindwani
- * Date: 2015-09-10
+ * Date: 2015-09-18
  */
 
 #ifndef __SOCKET_SPP_H__
@@ -44,13 +44,12 @@ namespace spp
     {
     public:
         // Constructors.
-        TCPClient(SOCKET s, SSL* ssl = NULL, spp::status c = OK)
+        TCPClient(SOCKET s, SSL* ssl = NULL)
             : socket(s),
-              header_size(0),
-              content_size(0),
-              content(NULL),
-              ssl(ssl),
-              code(c) { }
+            header_size(0),
+            content_size(0),
+            content(NULL),
+            ssl(ssl){}
 
     public:
         // Socket functions.
@@ -67,7 +66,6 @@ namespace spp
         size_t header_size,
                content_size;
 
-        spp::status code;
         SSL* ssl;
     };
 
@@ -88,7 +86,7 @@ namespace spp
 
     public:
         // Member functions.
-        virtual int generate_resource(TCPClient*, HTTPRequest*);
+        virtual status generate_response(TCPClient*, HTTPRequest*);
         virtual void start(void);
         virtual void wait(void);
         virtual void stop(void);

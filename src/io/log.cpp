@@ -2,7 +2,7 @@
  * Serverpp log implementation
  *
  * Author: Mayank Sindwani
- * Date: 2015-09-10
+ * Date: 2015-09-18
  */
 
 #include <spp/log.h>

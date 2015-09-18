@@ -3,7 +3,7 @@
  *
  * Description: Includes definitions for well-defined HTTP components.
  * Author: Mayank Sindwani
- * Date: 2015-09-10
+ * Date: 2015-09-18
  */
 
 #ifndef __HTTP_SPP_H__
@@ -20,20 +20,18 @@
 #define SPP_HTTP_ERROR "error"
 #define SPP_HTTP_MAP   "map"
 
+// Constant default response content.
 #define SPP_HTTP_500 "<html><body><h2>Server++</h2><div>500 Internal Server Error</div></body></html>"
-#define SPP_HTTP_404 "<h2>Server++</h2><div>404 Not Found</div>"
-
-#define SPP_HTTP_500_LEN strlen(SPP_HTTP_500)
-#define SPP_HTTP_404_LEN strlen(SPP_HTTP_404)
+#define SPP_HTTP_404 "<html><body><h2>Server++</h2><div>404 Not Found</div></body></html>"
 
 namespace spp
 {
     enum status
     {
-        OK = 200,
-        FOUND = 302,
-        FORBIDDEN = 403,
-        NOT_FOUND = 404,
+        OK                    = 200,
+        FOUND                 = 302,
+        FORBIDDEN             = 403,
+        NOT_FOUND             = 404,
         INTERNAL_SERVER_ERROR = 500
     };
 

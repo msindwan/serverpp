@@ -2,7 +2,7 @@
  * Serverpp HTTP implementation
  *
  * Author: Mayank Sindwani
- * Date: 2015-09-10
+ * Date: 2015-09-18
  */
 
 #include <spp\http.h>
@@ -168,8 +168,10 @@ void HTTPUriMap::set_location(const char* type, const char* key, HTTPLocation* l
     // Create a regex rule for errors.
     else if (!strcmp(SPP_HTTP_ERROR, type))
     {
+        if (location->is_proxied())
+            throw HTTPException();
+
         m_errors.push_back(make_pair(regex(key), location));
-        // TODO: If not static file, throw error!
     }
     // Add the rule to the suffix tree.
     else if (!strcmp(SPP_HTTP_MAP, type))

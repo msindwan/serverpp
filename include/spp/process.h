@@ -3,7 +3,7 @@
  *
  * Description: A cross platform wrapper for threading primitives.
  * Author: Mayank Sindwani
- * Date: 2015-09-10
+ * Date: 2015-09-18
  */
 
 #ifndef __PROCESS_SPP_H__

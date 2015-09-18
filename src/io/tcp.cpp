@@ -2,7 +2,7 @@
  * Serverpp TCP Implementation
  *
  * Author: Mayank Sindwani
- * Date: 2015-09-17
+ * Date: 2015-09-18
  */
 
 #include <spp/tcp.h>
@@ -72,6 +72,7 @@ int TCPClient::send(void)
     int sent_bytes;
     sent_bytes = 0;
 
+    // Send the header.
     if (header_size > 0)
     {
         sent_bytes = ssl ?
@@ -81,6 +82,7 @@ int TCPClient::send(void)
         header_size -= sent_bytes;
     }
 
+    // Send the content.
     if (content_size > 0)
     {
         sent_bytes = ssl ?
@@ -103,14 +105,6 @@ TCPServer::TCPServer(jToken* server)
       m_ssl_ctx(NULL)
 {
     HTTPLocation* http_location;
-
-    string slog,
-           type,
-           key;
-
-    FILE* log;
-    int i, rtn;
-
     jToken *location_cert,
            *location_key,
            *location,
@@ -118,6 +112,13 @@ TCPServer::TCPServer(jToken* server)
            *temp;
 
     jArray *locations;
+
+    string slog,
+           type,
+            key;
+
+    int i, rtn;
+    FILE* log;
 
     // Get server port.
     temp = jconf_get(server, "o", "port");
@@ -137,7 +138,11 @@ TCPServer::TCPServer(jToken* server)
 
         m_log = string((char*)temp->data, jconf_strlen((char*)temp->data, "\""));
 
+#if defined(SPP_WINDOWS)
         fopen_s(&log, m_log.c_str(), "ab");
+#else
+        log = fopen(m_log.c_str(), "ab");
+#endif
 
         if (log == NULL)
             throw TCPException();
@@ -150,10 +155,12 @@ TCPServer::TCPServer(jToken* server)
 
     if (temp != NULL)
     {
+        // Get the SSL properties.
         ssl_token = jconf_get(temp, "o", "enabled");
 
         if (ssl_token == NULL || ssl_token->type == JCONF_TRUE)
         {
+            // Get the certificate.
             location_cert = jconf_get(temp, "o", "cert");
 
             if (location_cert == NULL || location_cert->type != JCONF_STRING)
@@ -161,6 +168,7 @@ TCPServer::TCPServer(jToken* server)
 
             m_cert = string((char*)location_cert->data, jconf_strlen((char*)location_cert->data, "\""));
 
+            // Get the key.
             location_key = jconf_get(temp, "o", "key");
 
             if (location_key == NULL || location_key->type != JCONF_STRING)
@@ -168,6 +176,7 @@ TCPServer::TCPServer(jToken* server)
 
             m_ckey = string((char*)location_key->data, jconf_strlen((char*)location_key->data, "\""));
 
+            // Set the SSL context.
             m_ssl_ctx = SSL_CTX_new(SSLv23_server_method());
             SSL_CTX_set_options(m_ssl_ctx, SSL_OP_SINGLE_DH_USE);
 
@@ -215,16 +224,89 @@ TCPServer::TCPServer(jToken* server)
 }
 
 /**
-* TCPServer destructor.
-*/
+ * TCPServer destructor.
+ */
 TCPServer::~TCPServer(void)
 {
     std::list< HTTPLocation* >::iterator it;
 
     for (it = m_locations.begin(); it != m_locations.end(); it++)
         delete *it;
+
+    if (m_ssl_ctx)
+        SSL_CTX_free(m_ssl_ctx);
 }
 
+/**
+ * TCPServer::start
+ *
+ * @description Starts the listening socket and dispatches the worker thread.
+ */
+void TCPServer::start(void)
+{
+    struct sockaddr_in addr;
+
+    if (is_running())
+        return;
+
+    // Create the listening socket.
+    if ((m_slisten = socket(AF_INET, SOCK_STREAM, 0)) == INVALID_SOCKET)
+    {
+        throw TCPException();
+    }
+
+    // Bind to the loopback IP and provided port.
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = INADDR_ANY;
+    addr.sin_port = htons(m_port);
+
+    // Bind the listening socket.
+    if (::bind(m_slisten, (struct sockaddr *) &addr, sizeof(addr)) == SOCKET_ERROR)
+    {
+        closesocket(m_slisten);
+        throw TCPException();
+    }
+
+    // Start listening.
+    if (listen(m_slisten, SOMAXCONN) == SOCKET_ERROR)
+    {
+        closesocket(m_slisten);
+        throw TCPException();
+    }
+
+    // Start the worker thread.
+#if defined(SPP_WINDOWS)
+    m_listener = (HANDLE)_beginthreadex(NULL, 0, &tcp_listener, this, 0, NULL);
+#endif
+
+    m_stop = false;
+}
+
+/**
+ * TCPServer::is_running
+ *
+ * @description Returns a flag indicating if the server is running.
+ * @returns // True if it is running; false otherwise.
+ */
+bool TCPServer::is_running(void)
+{
+    bool status;
+
+    m_mtx_stop.aquire();
+
+    status = !m_stop;
+
+    m_mtx_stop.release();
+
+    return status;
+}
+
+/**
+ * TCPServer::run
+ *
+ * @description: Accepts incomming connections and serves content.
+ * @returns // The termination status.
+ */
 int TCPServer::run(void)
 {
     fd_set fd_read, fd_write, fd_except;
@@ -235,12 +317,14 @@ int TCPServer::run(void)
     sockaddr_in addr;
     SOCKET sclient;
     DWORD timeout;
-    u_long mode;
     errno_t err;
+    u_long mode;
     SSL* ssl;
 
-    int errlen, recv_bytes, send_bytes;
     char ip_buffer[INET_ADDRSTRLEN];
+    int recv_bytes,
+        send_bytes,
+        errlen;
 
     manager = TCPServerManager::get_manager();
     addrlen = sizeof(addr);
@@ -250,6 +334,7 @@ int TCPServer::run(void)
 
     while (is_running())
     {
+        // Initialize the fd_sets.
         FD_ZERO(&fd_read);
         FD_ZERO(&fd_write);
         FD_ZERO(&fd_except);
@@ -270,6 +355,7 @@ int TCPServer::run(void)
             FD_SET(it->socket, &fd_except);
         }
 
+        // Wait for socket activity.
         if (select(0, &fd_read, &fd_write, &fd_except, 0) <= 0)
         {
             if (!is_running())
@@ -281,24 +367,30 @@ int TCPServer::run(void)
                 m_log.c_str(),
                 "select() failed. {%d}",
                 WSAGetLastError()
-            );
+                );
         }
 
         if (FD_ISSET(m_slisten, &fd_read))
         {
-            if ((sclient = accept(m_slisten, (sockaddr*)&addr, &addrlen)) == INVALID_SOCKET)
+            // Accept a connection.
+            if ((sclient = accept(m_slisten, (sockaddr*)&addr, &addrlen)) == SOCKET_ERROR)
             {
+                if (!is_running())
+                    return 0;
+
                 return manager->log(
                     TCPServerManager::ERR,
                     m_log.c_str(),
                     "Failed to accept a connection. {%d}",
                     WSAGetLastError()
-                );
+                    );
             }
 
+            // Set the timeout.
             setsockopt(sclient, SOL_SOCKET, SO_RCVTIMEO, (char*)&timeout, sizeof timeout);
             ssl = NULL;
 
+            // Attempt the handshake if SSL is enabled.
             if (m_ssl_ctx != NULL)
             {
                 ssl = SSL_new(m_ssl_ctx);
@@ -313,6 +405,8 @@ int TCPServer::run(void)
                 }
             }
 
+            // Add to the list of clients.
+            ioctlsocket(sclient, FIONBIO, &mode);
             clients.push_back(TCPClient(sclient, ssl));
 
         }
@@ -324,7 +418,7 @@ int TCPServer::run(void)
                 m_log.c_str(),
                 "Listening socket error. {%d}",
                 err
-            );
+                );
         }
 
         it = clients.begin();
@@ -340,8 +434,10 @@ int TCPServer::run(void)
             {
                 if (FD_ISSET(it->socket, &fd_read))
                 {
+                    // Recv bytes.
                     recv_bytes = it->recv();
 
+                    // Client closed the connection.
                     if (recv_bytes == 0)
                         goto close_connection;
 
@@ -352,33 +448,37 @@ int TCPServer::run(void)
                     }
                     else
                     {
+                        // Increment the recieved bytes and continue.
                         it->header_size += recv_bytes;
                         FD_CLR(it->socket, &fd_read);
                     }
                 }
                 else if (FD_ISSET(it->socket, &fd_write))
                 {
+                    // If the connection failed the handshake, don't send a response.
                     if (it->ssl == NULL && m_ssl_ctx != NULL)
                     {
                         FD_CLR(it->socket, &fd_write);
                         goto close_connection;
                     }
 
+                    // Generate the content if there is none.
                     if (it->content == NULL)
                     {
                         HTTPRequest request(it->headers, it->header_size);
-                        generate_resource(&(*it), &request);
-
                         manager->log(
                             TCPServerManager::INFO,
                             m_log.c_str(),
-                            "%s:%d %s %s",
+                            "%s:%d %s %s %d",
                             inet_ntop(AF_INET, &(addr.sin_addr), ip_buffer, INET_ADDRSTRLEN),
                             ntohs(addr.sin_port),
                             request.get_method().c_str(),
-                            request.get_uri().c_str());
+                            request.get_uri().c_str(),
+                            generate_response(&(*it), &request) // Generate the response.
+                        );
                     }
 
+                    // Send bytes.
                     send_bytes = it->send();
 
                     if (send_bytes == SOCKET_ERROR)
@@ -389,6 +489,7 @@ int TCPServer::run(void)
 
                     if (it->header_size == 0 && it->content_size == 0)
                     {
+                        // Send complete.
                         FD_CLR(it->socket, &fd_write);
                         goto close_connection;
                     }
@@ -399,6 +500,7 @@ int TCPServer::run(void)
             it++;
             continue;
 
+        // Close a connection.
         close_connection:
             it->close();
             clients.erase(it);
@@ -406,6 +508,7 @@ int TCPServer::run(void)
         }
     }
 
+    // Close lingering clients.
     for (it = clients.begin(); it != clients.end(); it++)
         it->close();
 
@@ -413,87 +516,34 @@ int TCPServer::run(void)
 }
 
 /**
- * TCPServer is_running.
+ * TCPServer::generate_response
  *
- * @description Returns a flag indicating if the server is running.
- * @returns // True if it is running; false otherwise.
+ * @description Starts the listening socket and dispatches the worker thread.
  */
-bool TCPServer::is_running(void)
+status TCPServer::generate_response(TCPClient* client, HTTPRequest* request)
 {
-    bool status;
-
-    m_mtx_stop.aquire();
-
-    status = !m_stop;
-
-    m_mtx_stop.release();
-
-    return status;
-}
-
-void TCPServer::start(void)
-{
-    struct sockaddr_in addr;
-    u_long mode;
-
-    mode = 0;
-    if (is_running())
-        return;
-
-    m_slisten = socket(AF_INET, SOCK_STREAM, 0);
-
-    if (m_slisten == INVALID_SOCKET)
-    {
-        throw TCPException();
-    }
-
-    ioctlsocket(m_slisten, FIONBIO, &mode);
-
-    addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = INADDR_ANY;
-    addr.sin_port = htons(m_port);
-
-    if (::bind(m_slisten, (struct sockaddr *) &addr, sizeof(addr)) == SOCKET_ERROR)
-    {
-        closesocket(m_slisten);
-        throw TCPException();
-    }
-
-    if (listen(m_slisten, SOMAXCONN) == SOCKET_ERROR)
-    {
-        closesocket(m_slisten);
-        throw TCPException();
-    }
-
-#if defined(SPP_WINDOWS)
-    m_listener = (HANDLE)_beginthreadex(NULL, 0, &tcp_listener, this, 0, NULL);
-#endif
-
-    m_stop = false;
-}
-
-int TCPServer::generate_resource(TCPClient* client, HTTPRequest* request)
-{
-    HTTPLocation *location;
     map<string, string> m_params;
     TCPServerManager* manager;
+    HTTPLocation *location;
     string path, response;
-    char *file, *ext;
     size_t size;
+    char *file;
 
+    // Get the location from the request.
     location = m_uri_map.get_location(request);
     manager = TCPServerManager::get_manager();
-    file = NULL;
 
     if (location == NULL)
     {
+        // Generate a 404 response.
         file = m_uri_map.get_error("404", &size);
 
         if (file == NULL)
         {
-            file = new char[SPP_HTTP_404_LEN];
+            // Use the default 404 text.
+            size = strlen(SPP_HTTP_404);
+            file = new char[size];
             strcpy(file, SPP_HTTP_404);
-            size = SPP_HTTP_404_LEN;
         }
 
         client->header_size = sprintf(
@@ -505,66 +555,66 @@ int TCPServer::generate_resource(TCPClient* client, HTTPRequest* request)
             size
         );
 
-        client->code = NOT_FOUND;
         client->content_size = size;
         client->content = file;
-
-        return 0;
+        return NOT_FOUND;
     }
 
     if (location->is_proxied())
     {
-        // TODO: 307 Temporary Redirect
-        return 0;
+        // TODO
     }
 
     if (request->get_method() != "GET")
     {
-        // Method not allowed
+        // TODO
     }
 
+    // Serve the static file.
     path = location->get_path(request);
     file = read_file(path.c_str(), &size);
 
     if (file == NULL)
     {
-        file = new char[SPP_HTTP_500_LEN];
-        strcpy(file, SPP_HTTP_500);
-        size = SPP_HTTP_500_LEN;
+        // Generate a 500 response.
+        file = m_uri_map.get_error("500", &size);
+
+        if (file == NULL)
+        {
+            // Use the default 500 text.
+            size = strlen(SPP_HTTP_500);
+            file = new char[size];
+            strcpy(file, SPP_HTTP_500);
+        }
 
         client->header_size = sprintf(
             client->headers,
             "HTTP/1.1 500 Internal Server Error\n \
-                    Server: Server++\n                   \
-                            Content-Type: text/html\n            \
-                                    Content-Length: %d\n\r\n",
-                                    size
-                                    );
+            Server: Server++\n                    \
+            Content-Type: text/html\n             \
+            Content-Length: %d\n\r\n",
+            size
+        );
 
-        client->code = INTERNAL_SERVER_ERROR;
         client->content = file;
         client->content_size = size;
-
-        return 0;
+        return INTERNAL_SERVER_ERROR;
     }
 
-    ext = get_ext(path.c_str(), path.size());
-
+    // Generate a 200 response.
     client->header_size = sprintf(
         client->headers,
-        "HTTP/1.1 200 OK\n \
-                Server: Server++\n \
-                        Content-Type: %s\n \
-                                Content-Length: %d\n\r\n",
-                                manager->get_type(ext).c_str(),
-                                size
-                                );
+        "HTTP/1.1 200 OK\n  \
+         Server: Server++\n \
+         Content-Type: %s\n \
+         Content-Length: %d\n\r\n",
+        manager->get_type(get_ext(path.c_str(), path.size())).c_str(),
+        size
+    );
 
     client->content = file;
     client->content_size = size;
-
-
-    return 0;
+    return OK;
 }
 
 /**

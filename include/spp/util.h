@@ -3,7 +3,7 @@
  *
  * Description: Miscellaneous helper functions for spp.
  * Author: Mayank Sindwani
- * Date: 2015-09-10
+ * Date: 2015-09-18
  */
 
 #ifndef __UTIL_SPP_H__
