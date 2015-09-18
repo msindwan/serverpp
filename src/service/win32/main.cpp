@@ -7,8 +7,8 @@
  */
 
 #include "controller.h"
-#include <string>
-#include <map>
+
+using namespace std;
 
 // Commands.
 enum COMMANDS
@@ -42,8 +42,8 @@ enum COMMANDS
  */
 int main(int argc, char* argv[])
 {
-    std::map < std::string, int >::iterator it;
-    std::map < std::string, int > cmds;
+    map < string, int >::iterator it;
+    map < string, int > cmds;
 
     // Map supported commands.
     cmds["-i"]      = INSTALL;
@@ -52,12 +52,12 @@ int main(int argc, char* argv[])
 
     if (argc > 1)
     {
-        if ((it = cmds.find(std::string(argv[1]))) == cmds.end())
+        if ((it = cmds.find(string(argv[1]))) == cmds.end())
         {
             printf("\"%s\" is not a valid command.\n", argv[1]);
             print_usage();
         }
-        else 
+        else
         {
             switch (it->second)
             {

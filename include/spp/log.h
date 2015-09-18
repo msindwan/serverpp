@@ -25,7 +25,7 @@ namespace spp
     public:
         // Constructor
         Logger() {};
-        
+
     public:
         enum Level
         {
@@ -40,7 +40,7 @@ namespace spp
         // Logging helper functions.
         virtual bool log(Level, const char*, const char*, ...);
         virtual void log(Level, FILE*, const char*, ...);
-    
+
     private:
         // Private member variables.
         Lock m_mtx;

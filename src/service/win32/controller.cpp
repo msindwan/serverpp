@@ -112,51 +112,43 @@ errno_t spp_svc_load_config(void)
     WSADATA wsaData;
     jArgs args;
 
-    DWORD dwSessionID;
-    HANDLE hToken;
+    DWORD session_id;
+    HANDLE h_token;
 
     TCHAR path[MAX_PATH];
     errno_t err;
     int i;
-    
+
     // TODO: Define error codes.
     manager = TCPServerManager::get_manager();
     err = NO_ERROR;
 
     // Get session ID.
-    if ((dwSessionID = WTSGetActiveConsoleSessionId()) == 0xFFFFFFFF)
-    {
+    if ((session_id = WTSGetActiveConsoleSessionId()) == 0xFFFFFFFF)
         return GetLastError();
-    }
 
     // Get user token.
-    if (!WTSQueryUserToken(dwSessionID, &hToken))
-    {
+    if (!WTSQueryUserToken(session_id, &h_token))
         return GetLastError();
-    }
-            
-    // Get the config file.
-    SHGetFolderPath(NULL, CSIDL_LOCAL_APPDATA, hToken, 0, path);
 
-    CloseHandle(hToken);
+    // Get the config file.
+    SHGetFolderPath(NULL, CSIDL_LOCAL_APPDATA, h_token, 0, path);
+
+    CloseHandle(h_token);
 
     if (!SetCurrentDirectory(path))
-    {
         return GetLastError();
-    }
 
-    // Initialize Winsock
+    // Initialize Winsock.
     if ((err = WSAStartup(MAKEWORD(2, 2), &wsaData)) != NO_ERROR)
-    {
         return err;
-    }
-    
+
     mime_file = read_file(SPP_MIME_FILE, &mime_file_size);
     if (mime_file == NULL)
     {
         return 1;
     }
-        
+
     // Load the mime file.
     if ((mimes = jconf_json2c(mime_file, mime_file_size, &args)) == NULL)
     {
@@ -180,7 +172,7 @@ errno_t spp_svc_load_config(void)
         while (temp)
         {
             mime = (jToken*)temp->value;
-            
+
             if (mime->type != JCONF_STRING)
             {
                 err = 1;
@@ -246,7 +238,7 @@ errno_t spp_svc_load_config(void)
     }
 
 cleanup:
-    
+
     jconf_free_token(mimes);
     jconf_free_token(config);
 
@@ -280,13 +272,14 @@ static void WINAPI spp_svc_main(DWORD argc, LPTSTR* argv)
         report_svc_event(
             EVENTLOG_ERROR_TYPE,
             message);
-        
+
         return;
     }
-    
+
     /* Service main body */
 
     spp_svc_set_status(SERVICE_START_PENDING, NO_ERROR);
+    init_ssl();
 
     // Attempt to load the configuration file.
     if ((rtn = spp_svc_load_config()) != 0)
@@ -297,6 +290,7 @@ static void WINAPI spp_svc_main(DWORD argc, LPTSTR* argv)
             message);
 
         spp_svc_set_status(SERVICE_STOPPED, rtn);
+        goto cleanup;
     }
 
     // Set the status to service running.
@@ -307,6 +301,9 @@ static void WINAPI spp_svc_main(DWORD argc, LPTSTR* argv)
     {
         manager->start_servers();
         manager->wait_for_servers();
+
+        // Set the status to stopped.
+        spp_svc_set_status(SERVICE_STOPPED, NO_ERROR);
     }
     catch (TCPServer::TCPException e)
     {
@@ -318,10 +315,9 @@ static void WINAPI spp_svc_main(DWORD argc, LPTSTR* argv)
     for (it = servers.begin(); it != servers.end(); it++)
         delete (*it);
 
+cleanup:
     WSACleanup();
-
-    // Set the status to stopped.
-    spp_svc_set_status(SERVICE_STOPPED, NO_ERROR);
+    destroy_ssl();
 }
 
 /**
@@ -334,7 +330,7 @@ DWORD spp_svc_init()
 {
     TCPServerManager* manager;
     manager = TCPServerManager::get_manager();
-        
+
     // Initialize a service table entry.
     SERVICE_TABLE_ENTRY serverpp[] =
     {

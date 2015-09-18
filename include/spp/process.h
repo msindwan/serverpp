@@ -9,7 +9,7 @@
 #ifndef __PROCESS_SPP_H__
 #define __PROCESS_SPP_H__
 
-#if defined(_WIN32) || defined(WIN32)
+#if defined(SPP_WINDOWS)
     #include <Windows.h>
 #elif defined(__unix__)
     #include <mutex>
@@ -31,10 +31,10 @@ namespace spp
         // Release and aquire
         void release(void);
         void aquire(void);
-    
+
     private:
         // Data members.
-#if defined(_WIN32) || defined(WIN32)
+#if defined(SPP_WINDOWS)
         CRITICAL_SECTION m_mtx;
 #else
         std::recursive_mutex m_mtx;

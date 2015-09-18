@@ -1,120 +1,106 @@
+/**
+ * Serverpp TCP Implementation
+ *
+ * Author: Mayank Sindwani
+ * Date: 2015-09-17
+ */
+
 #include <spp/tcp.h>
 
 using namespace spp;
 using namespace std;
 
+/**
+ * TCPListener
+ *
+ * @description Thread callback to run a server.
+ * @param {param} // The server instance.
+ */
 static unsigned int __stdcall tcp_listener(void* param)
 {
-    SOCKET sclients[SPP_MAX_NUM_CLIENTS],
-           slisten,
-           saccept,
-           sclient;
-
-    char headers[SPP_MAX_HEADER_SIZE];
-    char ip_buffer[INET_ADDRSTRLEN];
-    int i, recv_bytes, addrlen;
-    struct sockaddr_in addr;
-
-    TCPServerManager* manager;
+    // Run the provided server instance.
     TCPServer* server;
-    fd_set fd_read;
-
     server = (TCPServer*)param;
-    slisten = server->get_socket();
-    addrlen = sizeof(addr);
-    manager = TCPServerManager::get_manager();
-
-    for (i = 0; i < SPP_MAX_NUM_CLIENTS; i++)
-        sclients[i] = 0;
-
-    while (server->is_running())
-    {
-        FD_ZERO(&fd_read);
-
-        FD_SET(slisten, &fd_read);
-        
-        for (i = 0; i < SPP_MAX_NUM_CLIENTS; i++)
-        {
-            sclient = sclients[i];
-
-            if (sclient > 0)
-                FD_SET(sclient, &fd_read);
-        }     
-
-        if (select(0, &fd_read, NULL, NULL, NULL) == SOCKET_ERROR)
-            continue;
-
-        if (FD_ISSET(slisten, &fd_read))
-        {
-            if ((saccept = accept(slisten, (struct sockaddr *)&addr, (socklen_t*)&addrlen)) < 0 )
-            {
-                manager->log(
-                    TCPServerManager::ERR,
-                    server->get_log_path().c_str(),
-                    "Failed to accept an incoming connection. {%d}",
-                    WSAGetLastError());
-                
-                continue;
-            }
-            
-            for (i = 0; i < SPP_MAX_NUM_CLIENTS; i++)
-            {
-                if (sclients[i] == 0)
-                {
-                    sclients[i] = saccept;
-                    break;
-                }
-            }
-        }
-        
-        for (i = 0; i < SPP_MAX_NUM_CLIENTS; i++)
-        {
-            sclient = sclients[i];
-
-            if (FD_ISSET(sclient, &fd_read))
-            {
-                recv_bytes = recv(sclient, headers, SPP_MAX_HEADER_SIZE, 0);
-
-                if (recv_bytes == SOCKET_ERROR)
-                {
-                    if (WSAGetLastError() != WSAECONNRESET)
-                    {
-                        manager->log(
-                            TCPServerManager::ERR,
-                            server->get_log_path().c_str(),
-                            "Failed to receive data. {%d}",
-                            WSAGetLastError());
-                    }
-                }
-
-                else if (recv_bytes != 0)
-                {
-                    headers[recv_bytes] = '\0';
-                    HTTPRequest request(headers, recv_bytes);
-                    
-                    manager->log(
-                        TCPServerManager::INFO,
-                        server->get_log_path().c_str(),
-                        "%s:%d %s %s",
-                        inet_ntop(AF_INET, &(addr.sin_addr), ip_buffer, INET_ADDRSTRLEN),
-                        ntohs(addr.sin_port),
-                        request.get_method().c_str(),
-                        request.get_uri().c_str());
-                    
-                    server->send_response(sclient, &request);
-                }
-                    
-                closesocket(sclient);
-                sclients[i] = 0;
-            }
-        }
-    }
-
-    return 0;
+    return server->run();
 }
 
+/**
+ * TCPClient::close
+ *
+ * @description Closes a tcp client.
+ */
+void TCPClient::close(void)
+{
+    closesocket(socket);
+
+    // Shutdown SSL.
+    if (ssl)
+    {
+        SSL_shutdown(ssl);
+        SSL_free(ssl);
+    }
+
+    delete content;
+}
+
+/**
+ * TCPClient::recv
+ *
+ * @description Recieves data.
+ * @returns // The number of bytes read.
+ */
+int TCPClient::recv(void)
+{
+    int read_bytes;
+
+    // If ssl is enabled, call SSL_read. Otherwise, call recv.
+    read_bytes = ssl ?
+        SSL_read(ssl,  headers + header_size, SPP_MAX_HEADER_SIZE - header_size) :
+        ::recv(socket, headers + header_size, SPP_MAX_HEADER_SIZE - header_size, 0);
+
+    return read_bytes;
+}
+
+/**
+ * TCPClient::send
+ *
+ * @description Sends data.
+ * @returns // The number of bytes sent.
+ */
+int TCPClient::send(void)
+{
+    int sent_bytes;
+    sent_bytes = 0;
+
+    if (header_size > 0)
+    {
+        sent_bytes = ssl ?
+            SSL_write(ssl, (char*)headers, header_size) :
+            ::send(socket, headers, header_size, 0);
+
+        header_size -= sent_bytes;
+    }
+
+    if (content_size > 0)
+    {
+        sent_bytes = ssl ?
+            SSL_write(ssl, (char*)content, content_size) :
+            ::send(socket, content, content_size, 0);
+
+        content_size -= sent_bytes;
+    }
+
+    return sent_bytes;
+}
+
+/**
+ * TCPServer constructor.
+ *
+ * @param {server} // The server configuration.
+ */
 TCPServer::TCPServer(jToken* server)
-    : m_stop(true)
+    : m_stop(true),
+      m_ssl_ctx(NULL)
 {
     HTTPLocation* http_location;
 
@@ -123,9 +109,12 @@ TCPServer::TCPServer(jToken* server)
            key;
 
     FILE* log;
-    int i;
-    
-    jToken *location,
+    int i, rtn;
+
+    jToken *location_cert,
+           *location_key,
+           *location,
+           *ssl_token,
            *temp;
 
     jArray *locations;
@@ -137,7 +126,7 @@ TCPServer::TCPServer(jToken* server)
         throw TCPException();
 
     m_port = strtol((char*)temp->data, NULL, 10);
-    
+
     // Get log path.
     temp = jconf_get(server, "o", "traffic_log");
 
@@ -154,6 +143,37 @@ TCPServer::TCPServer(jToken* server)
             throw TCPException();
 
         fclose(log);
+    }
+
+    // Set SSL context.
+    temp = jconf_get(server, "o", "ssl");
+
+    if (temp != NULL)
+    {
+        ssl_token = jconf_get(temp, "o", "enabled");
+
+        if (ssl_token == NULL || ssl_token->type == JCONF_TRUE)
+        {
+            location_cert = jconf_get(temp, "o", "cert");
+
+            if (location_cert == NULL || location_cert->type != JCONF_STRING)
+                throw TCPException();
+
+            m_cert = string((char*)location_cert->data, jconf_strlen((char*)location_cert->data, "\""));
+
+            location_key = jconf_get(temp, "o", "key");
+
+            if (location_key == NULL || location_key->type != JCONF_STRING)
+                throw TCPException();
+
+            m_ckey = string((char*)location_key->data, jconf_strlen((char*)location_key->data, "\""));
+
+            m_ssl_ctx = SSL_CTX_new(SSLv23_server_method());
+            SSL_CTX_set_options(m_ssl_ctx, SSL_OP_SINGLE_DH_USE);
+
+            if ((rtn = load_certificates(m_ssl_ctx, m_cert.c_str(), m_ckey.c_str())) < 0)
+                throw TCPException();
+        }
     }
 
     // Set locations.
@@ -189,10 +209,215 @@ TCPServer::TCPServer(jToken* server)
             throw TCPException();
 
         http_location = new HTTPLocation(location, server);
-        m_locations.set_location(type.c_str(), key.c_str(), http_location);
+        m_locations.push_back(http_location);
+        m_uri_map.set_location(type.c_str(), key.c_str(), http_location);
     }
 }
 
+/**
+* TCPServer destructor.
+*/
+TCPServer::~TCPServer(void)
+{
+    std::list< HTTPLocation* >::iterator it;
+
+    for (it = m_locations.begin(); it != m_locations.end(); it++)
+        delete *it;
+}
+
+int TCPServer::run(void)
+{
+    fd_set fd_read, fd_write, fd_except;
+    list<TCPClient>::iterator it;
+    TCPServerManager* manager;
+    list<TCPClient> clients;
+    socklen_t addrlen;
+    sockaddr_in addr;
+    SOCKET sclient;
+    DWORD timeout;
+    u_long mode;
+    errno_t err;
+    SSL* ssl;
+
+    int errlen, recv_bytes, send_bytes;
+    char ip_buffer[INET_ADDRSTRLEN];
+
+    manager = TCPServerManager::get_manager();
+    addrlen = sizeof(addr);
+    errlen = sizeof(err);
+    timeout = 1000;
+    mode = 1;
+
+    while (is_running())
+    {
+        FD_ZERO(&fd_read);
+        FD_ZERO(&fd_write);
+        FD_ZERO(&fd_except);
+
+        FD_SET(m_slisten, &fd_read);
+        FD_SET(m_slisten, &fd_except);
+
+        for (it = clients.begin(); it != clients.end(); it++)
+        {
+            // Space available for read buffer.
+            if (it->header_size < SPP_MAX_HEADER_SIZE)
+                FD_SET(it->socket, &fd_read);
+
+            // Data required to be sent.
+            if (it->header_size > 0 || it->content_size > 0)
+                FD_SET(it->socket, &fd_write);
+
+            FD_SET(it->socket, &fd_except);
+        }
+
+        if (select(0, &fd_read, &fd_write, &fd_except, 0) <= 0)
+        {
+            if (!is_running())
+                return 0;
+
+            // Select failed.
+            return manager->log(
+                TCPServerManager::ERR,
+                m_log.c_str(),
+                "select() failed. {%d}",
+                WSAGetLastError()
+            );
+        }
+
+        if (FD_ISSET(m_slisten, &fd_read))
+        {
+            if ((sclient = accept(m_slisten, (sockaddr*)&addr, &addrlen)) == INVALID_SOCKET)
+            {
+                return manager->log(
+                    TCPServerManager::ERR,
+                    m_log.c_str(),
+                    "Failed to accept a connection. {%d}",
+                    WSAGetLastError()
+                );
+            }
+
+            setsockopt(sclient, SOL_SOCKET, SO_RCVTIMEO, (char*)&timeout, sizeof timeout);
+            ssl = NULL;
+
+            if (m_ssl_ctx != NULL)
+            {
+                ssl = SSL_new(m_ssl_ctx);
+                SSL_set_fd(ssl, sclient);
+                err = SSL_accept(ssl);
+
+                if (err <= 0)
+                {
+                    SSL_shutdown(ssl);
+                    SSL_free(ssl);
+                    ssl = NULL;
+                }
+            }
+
+            clients.push_back(TCPClient(sclient, ssl));
+
+        }
+        else if (FD_ISSET(m_slisten, &fd_except))
+        {
+            getsockopt(m_slisten, SOL_SOCKET, SO_ERROR, (char*)&err, &errlen);
+            return manager->log(
+                TCPServerManager::ERR,
+                m_log.c_str(),
+                "Listening socket error. {%d}",
+                err
+            );
+        }
+
+        it = clients.begin();
+        while (it != clients.end())
+        {
+            // Check the fd_sets for activity.
+            if (FD_ISSET(it->socket, &fd_except))
+            {
+                FD_CLR(it->socket, &fd_except);
+                goto close_connection;
+            }
+            else
+            {
+                if (FD_ISSET(it->socket, &fd_read))
+                {
+                    recv_bytes = it->recv();
+
+                    if (recv_bytes == 0)
+                        goto close_connection;
+
+                    if (recv_bytes == SOCKET_ERROR)
+                    {
+                        getsockopt(it->socket, SOL_SOCKET, SO_ERROR, (char*)&err, &errlen);
+                        if (err != WSAEWOULDBLOCK) goto close_connection;
+                    }
+                    else
+                    {
+                        it->header_size += recv_bytes;
+                        FD_CLR(it->socket, &fd_read);
+                    }
+                }
+                else if (FD_ISSET(it->socket, &fd_write))
+                {
+                    if (it->ssl == NULL && m_ssl_ctx != NULL)
+                    {
+                        FD_CLR(it->socket, &fd_write);
+                        goto close_connection;
+                    }
+
+                    if (it->content == NULL)
+                    {
+                        HTTPRequest request(it->headers, it->header_size);
+                        generate_resource(&(*it), &request);
+
+                        manager->log(
+                            TCPServerManager::INFO,
+                            m_log.c_str(),
+                            "%s:%d %s %s",
+                            inet_ntop(AF_INET, &(addr.sin_addr), ip_buffer, INET_ADDRSTRLEN),
+                            ntohs(addr.sin_port),
+                            request.get_method().c_str(),
+                            request.get_uri().c_str());
+                    }
+
+                    send_bytes = it->send();
+
+                    if (send_bytes == SOCKET_ERROR)
+                    {
+                        getsockopt(it->socket, SOL_SOCKET, SO_ERROR, (char*)&err, &errlen);
+                        if (err != WSAEWOULDBLOCK) goto close_connection;
+                    }
+
+                    if (it->header_size == 0 && it->content_size == 0)
+                    {
+                        FD_CLR(it->socket, &fd_write);
+                        goto close_connection;
+                    }
+
+                }
+            }
+
+            it++;
+            continue;
+
+        close_connection:
+            it->close();
+            clients.erase(it);
+            it = clients.begin();
+        }
+    }
+
+    for (it = clients.begin(); it != clients.end(); it++)
+        it->close();
+
+    return 0;
+}
+
+/**
+ * TCPServer is_running.
+ *
+ * @description Returns a flag indicating if the server is running.
+ * @returns // True if it is running; false otherwise.
+ */
 bool TCPServer::is_running(void)
 {
     bool status;
@@ -209,16 +434,20 @@ bool TCPServer::is_running(void)
 void TCPServer::start(void)
 {
     struct sockaddr_in addr;
+    u_long mode;
 
+    mode = 0;
     if (is_running())
         return;
-    
+
     m_slisten = socket(AF_INET, SOCK_STREAM, 0);
 
     if (m_slisten == INVALID_SOCKET)
     {
         throw TCPException();
     }
+
+    ioctlsocket(m_slisten, FIONBIO, &mode);
 
     addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = INADDR_ANY;
@@ -236,136 +465,152 @@ void TCPServer::start(void)
         throw TCPException();
     }
 
-#if defined(WIN32) || defined(_WIN32_)
+#if defined(SPP_WINDOWS)
     m_listener = (HANDLE)_beginthreadex(NULL, 0, &tcp_listener, this, 0, NULL);
 #endif
 
     m_stop = false;
 }
 
-void TCPServer::send_response(SOCKET socket, HTTPRequest* request)
+int TCPServer::generate_resource(TCPClient* client, HTTPRequest* request)
 {
-    HTTPLocation *location, *error;
+    HTTPLocation *location;
     map<string, string> m_params;
     TCPServerManager* manager;
     string path, response;
-    stringstream stream;
     char *file, *ext;
     size_t size;
 
-    location = m_locations.get_location(request);
+    location = m_uri_map.get_location(request);
     manager = TCPServerManager::get_manager();
-        
+    file = NULL;
+
     if (location == NULL)
     {
-        // process error
-        error = m_locations.get_error("404");
+        file = m_uri_map.get_error("404", &size);
 
-        if (error == NULL)
+        if (file == NULL)
         {
-            file = "<h4>Server++</h4><div>404 Not Found</div>";
-            size = strlen(file);
-        }
-        else
-        {
-            m_params["code"] = "404";
-            path = error->get_path(&m_params);
-            file = read_file(path.c_str(), &size);
-            
-            if (file == NULL)
-            {
-                file = "<h4>Server++</h4><div>404 Not Found</div>";
-                size = strlen(file);
-            }
+            file = new char[SPP_HTTP_404_LEN];
+            strcpy(file, SPP_HTTP_404);
+            size = SPP_HTTP_404_LEN;
         }
 
-        stream << "HTTP/1.1 404 Not Found" << endl;
-        stream << "Content-Type: text/html" << endl;
-        stream << "Content-Length:" << size << endl;
+        client->header_size = sprintf(
+            client->headers,
+            "HTTP/1.1 404 Not Found\n \
+            Server: Server++\n        \
+            Content-Type: text/html\n \
+            Content-Length: %d\n\r\n",
+            size
+        );
 
-        goto send;
+        client->code = NOT_FOUND;
+        client->content_size = size;
+        client->content = file;
+
+        return 0;
     }
 
     if (location->is_proxied())
     {
         // TODO: 307 Temporary Redirect
-        // return;
+        return 0;
     }
 
     if (request->get_method() != "GET")
     {
-        // TODO: Determine error type
-        return;
+        // Method not allowed
     }
 
     path = location->get_path(request);
     file = read_file(path.c_str(), &size);
-    
+
     if (file == NULL)
     {
-        // process error
-        file = "<h4>Server++</h4><div>500 Internal Server Error</div>";
-        size = strlen(file);
+        file = new char[SPP_HTTP_500_LEN];
+        strcpy(file, SPP_HTTP_500);
+        size = SPP_HTTP_500_LEN;
 
-        stream << "HTTP/1.1 500 Internal Server Error" << endl;
-        stream << "Content-Type: text/html" << endl;
-        stream << "Content-Length:" << size << endl;
+        client->header_size = sprintf(
+            client->headers,
+            "HTTP/1.1 500 Internal Server Error\n \
+                    Server: Server++\n                   \
+                            Content-Type: text/html\n            \
+                                    Content-Length: %d\n\r\n",
+                                    size
+                                    );
 
-        goto send;
+        client->code = INTERNAL_SERVER_ERROR;
+        client->content = file;
+        client->content_size = size;
+
+        return 0;
     }
 
     ext = get_ext(path.c_str(), path.size());
 
-    stream << "HTTP/1.1 200 OK"  << endl;
-    stream << "Content-Type:"    << manager->get_type(ext) << endl;
-    stream << "Content-Length:"  << size << endl;
+    client->header_size = sprintf(
+        client->headers,
+        "HTTP/1.1 200 OK\n \
+                Server: Server++\n \
+                        Content-Type: %s\n \
+                                Content-Length: %d\n\r\n",
+                                manager->get_type(ext).c_str(),
+                                size
+                                );
 
-send:
-    stream << "Server: Server++" << endl;
-    stream << "\r" << endl;
-    response = stream.str();
+    client->content = file;
+    client->content_size = size;
 
-    // TODO: Send All
-    send(socket, response.c_str(), response.size(), 0);
-    send(socket, file, size, 0);
+
+    return 0;
 }
 
+/**
+ * TCPServer::wait
+ *
+ * @description Wait indefinitely for the listening thread.
+ */
 void TCPServer::wait(void)
 {
-#if defined(WIN32) || defined(_WIN32_)
+#if defined(SPP_WINDOWS)
     WaitForSingleObject(m_listener, INFINITE);
 #endif
 }
 
+/**
+ * TCPServer::stop
+ *
+ * @description Stop the server.
+ */
 void TCPServer::stop(void)
 {
     m_mtx_stop.aquire();
 
+    // Set the flag and close the listening socket.
     m_stop = true;
     closesocket(m_slisten);
 
     m_mtx_stop.release();
 }
 
-int TCPServer::get_num_processors(void)
+/**
+ * TCPServerManager::add_server
+ *
+ * @description Adds a server to the collection.
+ * @param {server} // The server to add.
+ */
+void TCPServerManager::add_server(TCPServer* server)
 {
-    static int processors = 0;
-
-    if (processors == 0)
-    {
-        SYSTEM_INFO info;
-        GetSystemInfo(&info);
-        processors = info.dwNumberOfProcessors;
-    }
-
-    return 1;
+    m_servers.push_back(server);
 }
 
-void TCPServerManager::add_server(TCPServer* listener)
-{
-    m_servers.push_back(listener);
-}
-
+/**
+ * TCPServerManager::wait_for_servers
+ *
+ * @description Waits indefinitely for all servers.
+ */
 void TCPServerManager::wait_for_servers(void)
 {
     std::list<TCPServer*>::iterator it;
@@ -374,6 +619,11 @@ void TCPServerManager::wait_for_servers(void)
         (*it)->wait();
 }
 
+/**
+ * TCPServerManager::start_servers
+ *
+ * @description Starts all the servers in the collection.
+ */
 void TCPServerManager::start_servers(void)
 {
     std::list<TCPServer*>::iterator it;
@@ -382,6 +632,11 @@ void TCPServerManager::start_servers(void)
         (*it)->start();
 }
 
+/**
+ * TCPServerManager::stop_servers
+ *
+ * @description Stops all the serves in the collection.
+ */
 void TCPServerManager::stop_servers(void)
 {
     std::list<TCPServer*>::iterator it;
@@ -390,11 +645,21 @@ void TCPServerManager::stop_servers(void)
         (*it)->stop();
 }
 
+/**
+ * TCPServerManager::add_type
+ *
+ * @description Adds a type to the server manager.
+ */
 void TCPServerManager::add_type(string ext, string mime)
 {
     m_mimes[ext] = mime;
 }
 
+/**
+ * TCPServerManager::get_type
+ *
+ * @description Returns a type from the provided extension.
+ */
 string TCPServerManager::get_type(string ext)
 {
     return m_mimes[ext];

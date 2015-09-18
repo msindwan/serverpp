@@ -38,10 +38,10 @@ void spp::render_template(string& src, map<string, string>* params)
 int spp::trim(char** buffer, size_t size, int* pos)
 {
     unsigned int cpos, length;
-    
+
     cpos = 0;
     (*buffer) += *pos;
-    
+
     // Skip to the next whitespace character.
     while (cpos < size && !isspace((*buffer)[cpos])) cpos++;
 
@@ -49,7 +49,7 @@ int spp::trim(char** buffer, size_t size, int* pos)
 
     // Ignore subsequent whitespace characters.
     while (cpos < size &&  isspace((*buffer)[cpos])) cpos++;
-    
+
     *pos = cpos;
     return length;
 }
@@ -82,7 +82,7 @@ char* spp::read_file(const char* path, size_t* size)
     buffer = new char[*size + 1];
     file.read(buffer, *size);
     buffer[*size] = '\0';
- 
+
     return buffer;
 }
 
@@ -103,7 +103,7 @@ char* spp::get_ext(const char* path, size_t size)
         // Return the pointer when the period is encountered.
         if (*p == '.')
             return p;
-        
+
         // An extension was not found.
         if (*p == '\\' || *p == '/')
             break;

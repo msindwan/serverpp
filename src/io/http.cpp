@@ -37,9 +37,9 @@ HTTPRequest::HTTPRequest(char* request, size_t size)
   {
       m_uri = uri.substr(0, pos++);
       query = uri.substr(pos, uri.length());
-     
+
       // Get key.
-#if defined(WIN32) || defined(_WIN32_)
+#if defined(SPP_WINDOWS)
       key = strtok_s((char*)query.c_str(), "=", &next);
 #else
       key = strtok((char*)query.c_str(), "=");
@@ -47,7 +47,7 @@ HTTPRequest::HTTPRequest(char* request, size_t size)
       while (key != NULL)
       {
           // Get value.
-#if defined(WIN32) || defined(_WIN32_)
+#if defined(SPP_WINDOWS)
           value = strtok_s(NULL, "&", &next);
 #else
           value = strtok(NULL, "&");
@@ -57,7 +57,7 @@ HTTPRequest::HTTPRequest(char* request, size_t size)
 
           // Store the key value pair.
           m_params[key] = value;
-#if defined(WIN32) || defined(_WIN32_)
+#if defined(SPP_WINDOWS)
           key = strtok_s(NULL, "=", &next);
 #else
           key = strtok(NULL, "=");
@@ -92,7 +92,7 @@ HTTPLocation::HTTPLocation(jToken* location, jToken* server)
         groot = (char*)root_token->data;
         m_root = string(groot, jconf_strlen(groot, "\""));
     }
-    
+
     // Construct the location based on the object type.
     switch (location->type)
     {
@@ -152,38 +152,6 @@ string HTTPLocation::get_path(map<string, string>* params)
 }
 
 /**
- * HTTPUriMap Destructor
- */
-HTTPUriMap::~HTTPUriMap(void)
-{
-    list <pair <regex*, HTTPLocation*> >::iterator expr;
-    list <HTTPLocation*>::iterator alias;
-    list <HTTPLocation*> aliases;
-
-    // Free expressions.
-    for (expr = m_expressions.begin(); expr != m_expressions.end(); expr++)
-    {
-        delete expr->first;
-        delete expr->second;
-    }
-
-    // Free errors.
-    for (expr = m_errors.begin(); expr != m_errors.end(); expr++)
-    {
-        delete expr->first;
-        delete expr->second;
-    }
-
-    // Free aliases.
-    aliases = m_locations.get_values();
-    for (alias = aliases.begin(); alias != aliases.end(); alias++)
-        delete (*alias);
-    
-    m_expressions.clear();
-    m_errors.clear();
-}
-
-/**
  * HTTPUriMap::set_location
  *
  * @description Assoicates a key with the provided location.
@@ -192,19 +160,15 @@ HTTPUriMap::~HTTPUriMap(void)
  */
 void HTTPUriMap::set_location(const char* type, const char* key, HTTPLocation* location)
 {
-    regex* rgx;
-    
     // Create a regex rule for locations.
     if (!strcmp(SPP_HTTP_REGEX, type))
     {
-        rgx = new regex(key);
-        m_expressions.push_back(make_pair(rgx, location));
+        m_expressions.push_back(make_pair(regex(key), location));
     }
     // Create a regex rule for errors.
     else if (!strcmp(SPP_HTTP_ERROR, type))
     {
-        rgx = new regex(key);
-        m_errors.push_back(make_pair(rgx, location));
+        m_errors.push_back(make_pair(regex(key), location));
         // TODO: If not static file, throw error!
     }
     // Add the rule to the suffix tree.
@@ -222,30 +186,36 @@ void HTTPUriMap::set_location(const char* type, const char* key, HTTPLocation* l
  * @param[out] {key}  // The location key.
  * @returns           // The location (NULL if not found).
  */
-HTTPLocation* HTTPUriMap::get_error(const char* key)
+char* HTTPUriMap::get_error(const char* key, size_t* size)
 {
-    list< pair<regex*, HTTPLocation*> >::iterator it;
+    list< pair<regex, HTTPLocation*> >::iterator it;
+    map<string, string> m_params;
+    string path;
 
     // Compare against each regex.
     for (it = m_errors.begin(); it != m_errors.end(); it++)
     {
-        if (regex_match(key, *it->first))
-            return it->second;
+        if (regex_match(key, it->first))
+        {
+            m_params["code"] = key;
+            path = it->second->get_path(&m_params);
+            return read_file(path.c_str(), size);
+        }
     }
-    
+
     return NULL;
 }
 
 /**
  * HTTPUriMap::get_location
- * 
+ *
  * @description Retrieves the location.
  * @param[out] {key}  // The location key.
  * @returns           // The location (NULL if not found).
  */
 HTTPLocation* HTTPUriMap::get_location(HTTPRequest* request)
 {
-    list< pair<regex*, HTTPLocation*> >::iterator it;
+    list< pair<regex, HTTPLocation*> >::iterator it;
     HTTPLocation* location;
     string uri;
 
@@ -257,7 +227,7 @@ HTTPLocation* HTTPUriMap::get_location(HTTPRequest* request)
     {
         for (it = m_expressions.begin(); it != m_expressions.end(); it++)
         {
-            if (regex_match(uri, *it->first))
+            if (regex_match(uri, it->first))
                 return it->second;
         }
     }

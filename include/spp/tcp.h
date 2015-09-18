@@ -10,11 +10,10 @@
 #define __SOCKET_SPP_H__
 
 // SPP Socket constants.
-#define SPP_MAX_HEADER_SIZE 8024
-#define SPP_MAX_NUM_CLIENTS 1000
+#define SPP_MAX_HEADER_SIZE 1024
 
-#if defined(_WIN32) || defined(WIN32)
-	
+#if defined(SPP_WINDOWS)
+
 #include <WinSock2.h>
 #include <WS2tcpip.h>
 #include <process.h>
@@ -33,48 +32,82 @@ typedef SOCKET int
 #include <sstream>
 #include "http.h"
 #include "log.h"
+#include "ssl.h"
 
 namespace spp
 {
     /**
+     * TCPClient: A represenation of a client connection with its
+     * TCP socket descripter and content buffer.
+     */
+    class TCPClient
+    {
+    public:
+        // Constructors.
+        TCPClient(SOCKET s, SSL* ssl = NULL, spp::status c = OK)
+            : socket(s),
+              header_size(0),
+              content_size(0),
+              content(NULL),
+              ssl(ssl),
+              code(c) { }
+
+    public:
+        // Socket functions.
+        void close(void);
+        int send(void);
+        int recv(void);
+
+    public:
+        // Public data members.
+        char headers[SPP_MAX_HEADER_SIZE],
+            *content;
+
+        SOCKET socket;
+        size_t header_size,
+               content_size;
+
+        spp::status code;
+        SSL* ssl;
+    };
+
+    /**
      * TCPServer: An entity for listening to incomming connections and
-     * handling HTTP requests/responses.
+     * handling HTTP requests/responses using TCP sockets.
      */
     class TCPServer
     {
     public:
         // Constructor and destructor
         TCPServer(jToken*);
+        ~TCPServer(void);
 
     public:
         // Getters and Setters.
-        std::string get_log_path(void) { return m_log; }
-        SOCKET get_socket(void) { return m_slisten; }
         bool is_running(void);
 
     public:
         // Member functions.
-        virtual void send_response(SOCKET, HTTPRequest*);
+        virtual int generate_resource(TCPClient*, HTTPRequest*);
         virtual void start(void);
         virtual void wait(void);
         virtual void stop(void);
-                
+        virtual int run(void);
+
+    public:
         // General TCPListener Exception
         class TCPException
         {
         public:
             TCPException() {};
         public:
-            int get_errcode() {
+            int get_errcode()
+            {
                 return this->m_errcode;
             };
         private:
             int m_errcode;
         };
-
-    public:
-        // Public helper functions.
-        static int get_num_processors();
 
     protected:
         HANDLE m_listener;
@@ -84,11 +117,11 @@ namespace spp
 
     private:
         // Data members.
-        Lock m_mtx_stop, m_mtx_files;
-        HTTPUriMap m_locations;
-        std::string m_log;
-
-        
+        std::list<HTTPLocation*> m_locations;
+        std::string m_log, m_cert, m_ckey;
+        HTTPUriMap m_uri_map;
+        SSL_CTX* m_ssl_ctx;
+        Lock m_mtx_stop;
     };
 
     /**

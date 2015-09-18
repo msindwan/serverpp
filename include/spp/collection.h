@@ -23,7 +23,7 @@ namespace spp
     public:
         // Constructor
         SuffixTree(void)
-        { 
+        {
             m_nodes = new Node();
             m_nodes->value = NULL;
             m_nodes->index = 0;
@@ -48,9 +48,6 @@ namespace spp
         // Internal node collection.
         Node* m_nodes;
 
-        // Flat list of values.
-        std::list<T> m_lnodes;
-
         void free_nodes(Node* node)
         {
             std::list<Node*>::iterator it;
@@ -60,16 +57,12 @@ namespace spp
                 delete node;
                 return;
             }
-            
+
             for (it = node->chars.begin(); it != node->chars.end(); it++)
                 free_nodes(*it);
 
             delete node;
         }
-
-    public:
-        // Getters and Setters.
-        std::list<T> get_values(void) { return m_lnodes; }
 
     public:
         // Suffix Tree setter.
@@ -112,9 +105,8 @@ namespace spp
 
                 temp = index;
             }
-            
+
             temp->value = value;
-            m_lnodes.push_back(value);
         }
 
         // Suffix Tree getter.

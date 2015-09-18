@@ -9,7 +9,7 @@
 #ifndef __INSTALLER_SVC_SPP_H__
 #define __INSTALLER_SVC_SPP_H__
 
-#include <spp\tcp.h>
+#include <spp/tcp.h>
 
 // Macros.
 #define SERVICE_NAME       "serverpp"

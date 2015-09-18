@@ -14,7 +14,7 @@ using namespace spp;
  */
 Lock::Lock(void)
 {
-#if defined(_WIN32) || defined(WIN32)
+#if defined(SPP_WINDOWS)
     InitializeCriticalSection(&m_mtx);
 #endif
 }
@@ -24,7 +24,7 @@ Lock::Lock(void)
  */
 Lock::~Lock(void)
 {
-#if defined(_WIN32) || defined(WIN32)
+#if defined(SPP_WINDOWS)
     DeleteCriticalSection(&m_mtx);
 #endif
 }
@@ -36,7 +36,7 @@ Lock::~Lock(void)
  */
 void Lock::aquire(void)
 {
-#if defined(_WIN32) || defined(WIN32)
+#if defined(SPP_WINDOWS)
     EnterCriticalSection(&m_mtx);
 #else
     m_mtx.lock();
@@ -50,7 +50,7 @@ void Lock::aquire(void)
 */
 void Lock::release(void)
 {
-#if defined(_WIN32) || defined(WIN32)
+#if defined(SPP_WINDOWS)
     LeaveCriticalSection(&m_mtx);
 #else
     m_mtx.unlock();

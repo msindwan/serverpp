@@ -9,12 +9,13 @@
 #ifndef __UTIL_SPP_H__
 #define __UTIL_SPP_H__
 
+#include <stdarg.h>
 #include <fstream>
 #include <string>
 #include <regex>
 #include <map>
 
-namespace spp 
+namespace spp
 {
     // Helper functions.
     void render_template(std::string&, std::map<std::string, std::string>*);

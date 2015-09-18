@@ -20,8 +20,23 @@
 #define SPP_HTTP_ERROR "error"
 #define SPP_HTTP_MAP   "map"
 
+#define SPP_HTTP_500 "<html><body><h2>Server++</h2><div>500 Internal Server Error</div></body></html>"
+#define SPP_HTTP_404 "<h2>Server++</h2><div>404 Not Found</div>"
+
+#define SPP_HTTP_500_LEN strlen(SPP_HTTP_500)
+#define SPP_HTTP_404_LEN strlen(SPP_HTTP_404)
+
 namespace spp
 {
+    enum status
+    {
+        OK = 200,
+        FOUND = 302,
+        FORBIDDEN = 403,
+        NOT_FOUND = 404,
+        INTERNAL_SERVER_ERROR = 500
+    };
+
     /**
      * HTTPException
      */
@@ -41,6 +56,7 @@ namespace spp
         // Getters and setters.
         std::map<std::string, std::string> get_params(void) { return m_params; }
         std::string get_method() { return m_method; }
+        std::string get_protocol() { return m_protocol; }
         std::string get_uri() { return m_uri; }
 
     private:
@@ -67,7 +83,7 @@ namespace spp
         std::string get_path(HTTPRequest*);
 
         bool is_proxied() { return m_proxy_pass; }
-    
+
     private:
         // Data members.
         std::string m_root;
@@ -85,18 +101,17 @@ namespace spp
     public:
         // Constructor.
         HTTPUriMap(void) {};
-        ~HTTPUriMap(void);
 
     public:
         // Getters and Setters.
         void set_location(const char*, const char*, HTTPLocation*);
         HTTPLocation* get_location(HTTPRequest*);
-        HTTPLocation* get_error(const char*);
+        char* get_error(const char*, size_t*);
 
     private:
         // Data members.
-        std::list< std::pair<std::regex*, HTTPLocation*> > m_expressions;
-        std::list< std::pair<std::regex*, HTTPLocation*> > m_errors;
+        std::list< std::pair<std::regex, HTTPLocation*> > m_expressions;
+        std::list< std::pair<std::regex, HTTPLocation*> > m_errors;
         SuffixTree<HTTPLocation*> m_locations;
     };
 }

@@ -24,17 +24,17 @@ static const char* levels[] =
  * @param[out] {message} // The message.
  */
 void Logger::log(Level level, FILE* file, const char* message, ...)
-{ 
+{
     struct tm timeinfo;
     char date[100];
     time_t ctime;
     va_list args;
 
     m_mtx.aquire();
-    
+
     // Format the time.
     time(&ctime);
-#if defined(_WIN32) || defined(WIN32)
+#if defined(SPP_WINDOWS)
     localtime_s(&timeinfo, &ctime);
 #elif defined(__unix__)
     timeinfo = *localtime(&ctime);
@@ -78,7 +78,7 @@ bool Logger::log(Level level, const char* file, const char* message, ...)
 
     // Attempt to open the file.
     stream = NULL;
-#if defined(WIN32) || defined(_WIN32_)
+#if defined(SPP_WINDOWS)
     fopen_s(&stream, file, "ab");
 #else
     stream = fopen(file, "ab");
@@ -89,7 +89,7 @@ bool Logger::log(Level level, const char* file, const char* message, ...)
 
     // Format the time.
     time(&ctime);
-#if defined(_WIN32) || defined(WIN32)
+#if defined(SPP_WINDOWS)
     localtime_s(&timeinfo, &ctime);
 #elif defined(__unix__)
     timeinfo = *localtime(&ctime);
