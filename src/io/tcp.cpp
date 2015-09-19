@@ -119,7 +119,7 @@ TCPServer::TCPServer(jToken* server)
 
     int i, rtn;
     FILE* log;
-
+    
     // Get server port.
     temp = jconf_get(server, "o", "port");
 
@@ -136,7 +136,7 @@ TCPServer::TCPServer(jToken* server)
         if (temp->type != JCONF_STRING)
             throw TCPException();
 
-        m_log = string((char*)temp->data, jconf_strlen((char*)temp->data, "\""));
+        m_log = string((char*)temp->data);
 
 #if defined(SPP_WINDOWS)
         fopen_s(&log, m_log.c_str(), "ab");
@@ -166,7 +166,7 @@ TCPServer::TCPServer(jToken* server)
             if (location_cert == NULL || location_cert->type != JCONF_STRING)
                 throw TCPException();
 
-            m_cert = string((char*)location_cert->data, jconf_strlen((char*)location_cert->data, "\""));
+            m_cert = string((char*)location_cert->data);
 
             // Get the key.
             location_key = jconf_get(temp, "o", "key");
@@ -174,7 +174,7 @@ TCPServer::TCPServer(jToken* server)
             if (location_key == NULL || location_key->type != JCONF_STRING)
                 throw TCPException();
 
-            m_ckey = string((char*)location_key->data, jconf_strlen((char*)location_key->data, "\""));
+            m_ckey = string((char*)location_key->data);
 
             // Set the SSL context.
             m_ssl_ctx = SSL_CTX_new(SSLv23_server_method());
@@ -201,7 +201,7 @@ TCPServer::TCPServer(jToken* server)
         if (location == NULL || location->type != JCONF_STRING)
             throw TCPException();
 
-        type = string((char*)location->data, jconf_strlen((char*)location->data, "\""));
+        type = string((char*)location->data);
 
         // Get the uri.
         location = jconf_get(temp, "aa", i, 1);
@@ -209,7 +209,7 @@ TCPServer::TCPServer(jToken* server)
         if (location == NULL || location->type != JCONF_STRING)
             throw TCPException();
 
-        key = string((char*)location->data, jconf_strlen((char*)location->data, "\""));
+        key = string((char*)location->data);
 
         // Get the location object.
         location = jconf_get(temp, "aa", i, 2);

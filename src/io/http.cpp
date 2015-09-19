@@ -90,7 +90,7 @@ HTTPLocation::HTTPLocation(jToken* location, jToken* server)
             throw HTTPException();
 
         groot = (char*)root_token->data;
-        m_root = string(groot, jconf_strlen(groot, "\""));
+        m_root = string(groot);
     }
 
     // Construct the location based on the object type.
@@ -102,7 +102,7 @@ HTTPLocation::HTTPLocation(jToken* location, jToken* server)
             throw HTTPException();
 
         // The location is aliased.
-        m_index = string((char*)location->data, jconf_strlen((char*)location->data, "\""));
+        m_index = string((char*)location->data);
         m_aliased = true;
         break;
 

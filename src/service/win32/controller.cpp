@@ -181,7 +181,7 @@ errno_t spp_svc_load_config(void)
 
             manager->add_type(
                 string(temp->key, temp->len),
-                string((char*)mime->data, jconf_strlen((char*)mime->data, "\""))
+                string((char*)mime->data)
             );
             temp = temp->next;
         }
