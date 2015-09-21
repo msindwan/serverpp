@@ -3,7 +3,7 @@
 # Date : 2015-09-19
 
 CXX       = g++
-CXXFLAGS  = -static-libgcc -static-libstdc++ -g -std=c++11 -I include/ -I ext/jconf/include -I $(OPENSSL)/include
+CXXFLAGS  = -static-libgcc -static-libstdc++ -g -std=c++11 -I include/ -I ext/jconf/include -I $(OPENSSL_DIR)/include
 
 IO_OBJECTS = $(patsubst %.cpp, %.o, $(wildcard src/io/*.cpp))
 
@@ -15,7 +15,7 @@ IO_LIB   = libsppio.a
 
 ifeq ($(OS),Windows_NT)
 	SVC_OBJECTS = $(patsubst %.cpp, %.o, $(wildcard src/service/win/*.cpp))
-	DEPENDS    += -lws2_32 -lWtsapi32 $(OPENSSL)/lib/MinGW/libeay32.a $(OPENSSL)/lib/MinGW/ssleay32.a
+	DEPENDS    += -lws2_32 -lWtsapi32 $(OPENSSL_DIR)/lib/MinGW/libeay32.a $(OPENSSL_DIR)/lib/MinGW/ssleay32.a
 	CXXFLAGS   += -DSPP_WINDOWS
 else
 	SVC_OBJECTS = $(patsubst %.cpp, %.o, $(wildcard src/service/linux/*.cpp))
