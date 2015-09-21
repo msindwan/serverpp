@@ -18,7 +18,7 @@
 #include <WS2tcpip.h>
 #include <process.h>
 
-#elif defined(SPP_UNIX)
+#elif defined(SPP_LINUX)
 
 #include <netinet/in.h>
 #include <sys/socket.h>

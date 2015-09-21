@@ -38,7 +38,7 @@ void Lock::aquire(void)
 {
 #if defined(SPP_WINDOWS)
     EnterCriticalSection(&m_mtx);
-#elif defined(SPP_UNIX)
+#elif defined(SPP_LINUX)
     m_mtx.lock();
 #endif
 }
@@ -52,7 +52,7 @@ void Lock::release(void)
 {
 #if defined(SPP_WINDOWS)
     LeaveCriticalSection(&m_mtx);
-#elif defined(SPP_UNIX)
+#elif defined(SPP_LINUX)
     m_mtx.unlock();
 #endif
 }

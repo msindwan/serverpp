@@ -1,23 +1,29 @@
 # SPP Makefile
 # Author : Mayank Sindwani
-# Date : 2015-07-18
+# Date : 2015-09-19
 
-CC       = g++
-CPPFLAGS = -I include/ -I ext/jconf/include
+CXX       = g++
+CXXFLAGS  = -static-libgcc -static-libstdc++ -g -std=c++11 -I include/ -I ext/jconf/include -I $(OPENSSL)/include
 
-IO_OBJECTS  = src/io/log.o src/io/socket.o src/io/http.o src/io/util.o
+IO_OBJECTS = $(patsubst %.cpp, %.o, $(wildcard src/io/*.cpp))
 
 DEPENDS  = -Llib -lsppio -Llib -ljconf
 LIB_DIR  = lib
 BIN_DIR  = bin
 EXEC     = serverpp
-LIB      = libsppio.a
+IO_LIB   = libsppio.a
 
-WIN_SRV_OBJECTS = $(patsubst %.cpp, %.o, $(wildcard src/service/win32/*.cpp))
-WIN_DEPENDS = $(DEPENDS) -lws2_32
+ifeq ($(OS),Windows_NT)
+	SVC_OBJECTS = $(patsubst %.cpp, %.o, $(wildcard src/service/win/*.cpp))
+	DEPENDS    += -lws2_32 -lWtsapi32 $(OPENSSL)/lib/MinGW/libeay32.a $(OPENSSL)/lib/MinGW/ssleay32.a
+	CXXFLAGS   += -DSPP_WINDOWS
+else
+	SVC_OBJECTS = $(patsubst %.cpp, %.o, $(wildcard src/service/linux/*.cpp))
+	CXXFLAGS   += -DSPP_LINUX
+endif
 
 target: io
-target: $(WIN_SRV_OBJECTS)
+target: $(SVC_OBJECTS)
 	#
 	# Build JConf
 	#
@@ -27,14 +33,14 @@ target: $(WIN_SRV_OBJECTS)
 	# Build Serverpp.srv
 	#
 	@mkdir -p $(BIN_DIR)
-	$(CC) -static-libgcc -static-libstdc++ -o $(BIN_DIR)/$(EXEC) $(WIN_SRV_OBJECTS) $(WIN_DEPENDS)
+	$(CXX) -static-libgcc -static-libstdc++ -o $(BIN_DIR)/$(EXEC) $(SVC_OBJECTS) $(DEPENDS)
 
 io: $(IO_OBJECTS)
 	#
 	# Build Serverpp.io
 	#
 	@mkdir -p $(LIB_DIR)
-	$(AR) rcs $(LIB_DIR)/$(LIB) $(IO_OBJECTS)
+	ar rcs $(LIB_DIR)/$(IO_LIB) $(IO_OBJECTS)
 
 clean:
-	rm -rf $(IO_OBJECTS) $(WIN_SRV_OBJECTS) $(SRV_OBJECTS) $(BIN_DIR)
+	rm -rf $(IO_OBJECTS) $(SVC_OBJECTS) $(BIN_DIR) $(LIB_DIR)

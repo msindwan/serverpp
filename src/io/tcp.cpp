@@ -268,7 +268,7 @@ void TCPServer::start(void)
     {
 #if defined(SPP_WINDOWS)
         err = WSAGetLastError();
-#elif defined(SPP_UNIX)
+#elif defined(SPP_LINUX)
         // TODO
 #endif
         throw TCPException("Failed to initialize the listening socket.", err);
@@ -285,7 +285,7 @@ void TCPServer::start(void)
         sprintf(error_msg, "Failed to bind the listening socket on port %d.", m_port);
 #if defined(SPP_WINDOWS)
         err = WSAGetLastError();
-#elif defined(SPP_UNIX)
+#elif defined(SPP_LINUX)
         // TODO
 #endif
         closesocket(m_slisten);
@@ -297,7 +297,7 @@ void TCPServer::start(void)
     {
 #if defined(SPP_WINDOWS)
         err = WSAGetLastError();
-#elif defined(SPP_UNIX)
+#elif defined(SPP_LINUX)
         // TODO
 #endif
         closesocket(m_slisten);
@@ -307,7 +307,7 @@ void TCPServer::start(void)
     // Start the worker thread.
 #if defined(SPP_WINDOWS)
     m_listener = (HANDLE)_beginthreadex(NULL, 0, &tcp_listener, this, 0, NULL);
-#elif defined(SPP_UNIX)
+#elif defined(SPP_LINUX)
     // TODO
 #endif
 
