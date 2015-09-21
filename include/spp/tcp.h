@@ -18,7 +18,7 @@
 #include <WS2tcpip.h>
 #include <process.h>
 
-#elif defined(__unix__)
+#elif defined(SPP_UNIX)
 
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -29,6 +29,7 @@ typedef SOCKET int
 
 #endif
 
+#include <errno.h>
 #include <sstream>
 #include "http.h"
 #include "log.h"
@@ -97,14 +98,15 @@ namespace spp
         class TCPException
         {
         public:
-            TCPException() {};
+            TCPException(std::string m, int err = -1) : msg(m), ecode(err) {};
+        
         public:
-            int get_errcode()
-            {
-                return this->m_errcode;
-            };
+            const char* get_error_msg() { return this->msg.c_str(); };
+            int get_errcode() { return ecode; }
+        
         private:
-            int m_errcode;
+            std::string msg;
+            int ecode;
         };
 
     protected:
@@ -129,7 +131,7 @@ namespace spp
     class TCPServerManager : public Logger
     {
     public:
-        // Singleton instance.
+        // Singleton instance (Singletons are not necessarily great, but this is a common use case).
         static TCPServerManager* get_manager()
         {
             static TCPServerManager instance;

@@ -39,7 +39,7 @@ HTTPRequest::HTTPRequest(char* request, size_t size)
       query = uri.substr(pos, uri.length());
 
       // Get key.
-#if defined(SPP_WINDOWS)
+#if defined(_MSC_VER)
       key = strtok_s((char*)query.c_str(), "=", &next);
 #else
       key = strtok((char*)query.c_str(), "=");
@@ -47,7 +47,7 @@ HTTPRequest::HTTPRequest(char* request, size_t size)
       while (key != NULL)
       {
           // Get value.
-#if defined(SPP_WINDOWS)
+#if defined(_MSC_VERs)
           value = strtok_s(NULL, "&", &next);
 #else
           value = strtok(NULL, "&");
@@ -57,7 +57,7 @@ HTTPRequest::HTTPRequest(char* request, size_t size)
 
           // Store the key value pair.
           m_params[key] = value;
-#if defined(SPP_WINDOWS)
+#if defined(_MSC_VER)
           key = strtok_s(NULL, "=", &next);
 #else
           key = strtok(NULL, "=");
@@ -160,25 +160,28 @@ string HTTPLocation::get_path(map<string, string>* params)
  */
 void HTTPUriMap::set_location(const char* type, const char* key, HTTPLocation* location)
 {
-    // Create a regex rule for locations.
-    if (!strcmp(SPP_HTTP_REGEX, type))
+    try
     {
-        m_expressions.push_back(make_pair(regex(key), location));
+        // Create a regex rule for locations.
+        if (!strcmp(SPP_HTTP_REGEX, type))
+        {
+            m_expressions.push_back(make_pair(regex(key), location));
+        }
+        // Create a regex rule for errors.
+        else if (!strcmp(SPP_HTTP_ERROR, type) && location->is_proxied())
+        {
+            m_errors.push_back(make_pair(regex(key), location));
+        }
+        // Add the rule to the suffix tree.
+        else if (!strcmp(SPP_HTTP_MAP, type))
+        {
+            m_locations.set(key, location);
+        }
     }
-    // Create a regex rule for errors.
-    else if (!strcmp(SPP_HTTP_ERROR, type))
+    catch (regex_error)
     {
-        if (location->is_proxied())
-            throw HTTPException();
-
-        m_errors.push_back(make_pair(regex(key), location));
+        throw HTTPException();
     }
-    // Add the rule to the suffix tree.
-    else if (!strcmp(SPP_HTTP_MAP, type))
-    {
-        m_locations.set(key, location);
-    }
-    else throw HTTPException();
 }
 
 /**

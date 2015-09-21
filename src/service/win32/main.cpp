@@ -44,6 +44,7 @@ int main(int argc, char* argv[])
 {
     map < string, int >::iterator it;
     map < string, int > cmds;
+    spp::Logger l;
 
     // Map supported commands.
     cmds["-i"]      = INSTALL;

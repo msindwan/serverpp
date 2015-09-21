@@ -6,32 +6,11 @@
  */
 
 #include "controller.h"
-#include "Wtsapi32.h"
 
 using namespace spp;
 using namespace std;
 
 static SERVICE_STATUS_HANDLE hstatus;
-
-/**
- * Serverpp report service event.
- *
- * @description Reports a service event using windows event logs.
- * @param[out] {type}     // The event type.
- * @param[out] {message}  // The error message.
- */
-static void report_svc_event(WORD type, char* message)
-{
-    LPCSTR strs[2] = { SERVICE_NAME, message };
-    HANDLE eventsrc;
-
-    eventsrc = RegisterEventSource(NULL, SERVICE_NAME);
-    if (eventsrc)
-    {
-    ReportEvent(eventsrc, type, 0, 0, NULL, 2, 0, strs, NULL);
-    DeregisterEventSource(eventsrc);
-    }
-}
 
 /**
  * Serverpp set service status.
@@ -90,7 +69,7 @@ static void WINAPI spp_svc_handler(DWORD ctrl)
  * @description Loads the configuration file.
  * @returns // True if successful, false otherwise.
  */
-errno_t spp_svc_load_config(void)
+int spp_svc_load_config(void)
 {
     TCPServerManager* manager;
 
@@ -109,57 +88,47 @@ errno_t spp_svc_load_config(void)
 
     jMap* mime_map;
     jArray* server_array;
-    WSADATA wsaData;
     jArgs args;
+    WSADATA wsaData;
+    int i, rtn;
 
-    DWORD session_id;
-    HANDLE h_token;
-
-    TCHAR path[MAX_PATH];
-    errno_t err;
-    int i;
-
-    // TODO: Define error codes.
     manager = TCPServerManager::get_manager();
-    err = NO_ERROR;
 
-    // Get session ID.
-    if ((session_id = WTSGetActiveConsoleSessionId()) == 0xFFFFFFFF)
-        return GetLastError();
-
-    // Get user token.
-    if (!WTSQueryUserToken(session_id, &h_token))
-        return GetLastError();
-
-    // Get the config file.
-    SHGetFolderPath(NULL, CSIDL_LOCAL_APPDATA, h_token, 0, path);
-
-    CloseHandle(h_token);
-
-    if (!SetCurrentDirectory(path))
-        return GetLastError();
-
-    // Initialize Winsock.
-    if ((err = WSAStartup(MAKEWORD(2, 2), &wsaData)) != NO_ERROR)
-        return err;
-
-    mime_file = read_file(SPP_MIME_FILE, &mime_file_size);
-    if (mime_file == NULL)
+    // Initialize Winsock and SSL.
+    if ((rtn = WSAStartup(MAKEWORD(2, 2), &wsaData)) != NO_ERROR)
     {
-        return 1;
+        manager->log(Logger::ERR, SPP_SVC_LOG, "WSAStartup failed. {%d}.", rtn);
+        return rtn;
     }
 
-    // Load the mime file.
-    if ((mimes = jconf_json2c(mime_file, mime_file_size, &args)) == NULL)
+    // Read the mime file.
+    if ((mime_file = read_file(SPP_MIME_FILE, &mime_file_size)) == NULL)
     {
-        err = 1;
-        goto cleanup;
+        manager->log(Logger::ERR, SPP_SVC_LOG, "Failed to read %s.", SPP_MIME_FILE);
+        return ERROR_FILE_NOT_FOUND;
+    }
+    
+    // Load the mime file.
+    mimes = jconf_json2c(mime_file, mime_file_size, &args);
+    free(mime_file);
+    
+    // Validation.
+    if (mimes == NULL)
+    {
+        manager->log(
+            Logger::ERR, SPP_SVC_LOG,
+            "JSON Parse error in %s: Error %d Line %d, Position %d",
+            SPP_MIME_FILE, args.e, args.line, args.pos);
+        
+        return ERROR_BAD_CONFIGURATION;
     }
 
     if (mimes->type != JCONF_OBJECT)
     {
-        err = 1;
-        goto cleanup;
+        jconf_free_token(mimes);
+        manager->log(Logger::ERR, SPP_SVC_LOG, "%s: Expected an object", SPP_MIME_FILE);
+        
+        return ERROR_BAD_CONFIGURATION;
     }
 
     mime_map = (jMap*)mimes->data;
@@ -173,51 +142,67 @@ errno_t spp_svc_load_config(void)
         {
             mime = (jToken*)temp->value;
 
+            // Expect a string.
             if (mime->type != JCONF_STRING)
             {
-                err = 1;
-                goto cleanup;
+                manager->log(
+                    Logger::ERR,
+                    SPP_SVC_LOG, "%s: Mime type %s is not a string",
+                    SPP_MIME_FILE, temp->key);
+                
+                jconf_free_token(mimes);
+                return ERROR_BAD_CONFIGURATION;
             }
 
-            manager->add_type(
-                string(temp->key, temp->len),
-                string((char*)mime->data)
-            );
+            manager->add_type(string(temp->key, temp->len), string((char*)mime->data));
             temp = temp->next;
         }
     }
 
-    conf_file = read_file(SPP_CONF_FILE, &conf_file_size);
-    if (conf_file == NULL)
+    jconf_free_token(mimes);
+
+    // Read the configuration file.
+    if ((conf_file = read_file(SPP_CONF_FILE, &conf_file_size)) == NULL)
     {
-        err = 1;
-        goto cleanup;
+        manager->log(Logger::ERR, SPP_SVC_LOG, "Failed to read %s.", SPP_CONF_FILE);
+        return ERROR_FILE_NOT_FOUND;
     }
 
     // Load the configuration file.
-    if ((config = jconf_json2c(conf_file, conf_file_size, &args)) == NULL)
+    config = jconf_json2c(conf_file, conf_file_size, &args);
+    free(conf_file);
+    
+    if (config == NULL)
     {
-        err = 1;
-        goto cleanup;
+        manager->log(
+            Logger::ERR, SPP_SVC_LOG,
+            "JSON Parse error in %s: Error %d Line %d, Position %d",
+            SPP_CONF_FILE, args.e, args.line, args.pos);
+
+        return ERROR_BAD_CONFIGURATION;
     }
 
     if (config->type != JCONF_OBJECT)
     {
-        err = 1;
-        goto cleanup;
+        jconf_free_token(config);
+        manager->log(Logger::ERR, SPP_SVC_LOG, "%s: Expected configuration to be an object.", SPP_CONF_FILE);
+
+        return ERROR_BAD_CONFIGURATION;
     }
 
     // Get the servers token.
     if ((servers = jconf_get(config, "o", "servers")) == NULL)
     {
-        err = 1;
-        goto cleanup;
+        jconf_free_token(config);
+        manager->log(Logger::ERR, SPP_SVC_LOG, "%s: Servers not found.", SPP_CONF_FILE);
+
+        return ERROR_BAD_CONFIGURATION;
     }
 
     if (servers->type != JCONF_ARRAY)
     {
-        err = 1;
-        goto cleanup;
+        manager->log(Logger::ERR, SPP_SVC_LOG, "%s: Expected an array for servers", SPP_CONF_FILE);
+        return ERROR_BAD_CONFIGURATION;
     }
 
     server_array = (jArray*)servers->data;
@@ -233,19 +218,18 @@ errno_t spp_svc_load_config(void)
     }
     catch (TCPServer::TCPException e)
     {
-        err = e.get_errcode();
-        goto cleanup;
+        jconf_free_token(config);
+        manager->log(
+            Logger::ERR,
+            SPP_SVC_LOG,
+            "%s: Server index %d - %s",
+            SPP_CONF_FILE, i, e.get_error_msg());
+        
+        return ERROR_BAD_CONFIGURATION;
     }
-
-cleanup:
-
-    jconf_free_token(mimes);
+    
     jconf_free_token(config);
-
-    if (mime_file != NULL) free(mime_file);
-    if (conf_file != NULL) free(conf_file);
-
-    return err;
+    return ERROR_SUCCESS;
 }
 
 /**
@@ -260,18 +244,18 @@ static void WINAPI spp_svc_main(DWORD argc, LPTSTR* argv)
     list<TCPServer*>::iterator it;
     TCPServerManager* manager;
     list<TCPServer*> servers;
-    char message[200];
-    errno_t rtn;
+    int rtn;
 
     manager = TCPServerManager::get_manager();
 
     // Try to register the service control handler.
     if (!(hstatus = RegisterServiceCtrlHandler(SERVICE_NAME, spp_svc_handler)))
     {
-        sprintf(message, "RegisterServiceCtrlHandler failed. {%d}", GetLastError());
-        report_svc_event(
-            EVENTLOG_ERROR_TYPE,
-            message);
+        manager->log(
+            Logger::ERR,
+            SPP_SVC_LOG,
+            "RegisterServiceCtrlHandler failed. {%d}.",
+            GetLastError());
 
         return;
     }
@@ -280,15 +264,10 @@ static void WINAPI spp_svc_main(DWORD argc, LPTSTR* argv)
 
     spp_svc_set_status(SERVICE_START_PENDING, NO_ERROR);
     init_ssl();
-
+    
     // Attempt to load the configuration file.
     if ((rtn = spp_svc_load_config()) != 0)
     {
-        sprintf(message, "Failed to load the configuration file. {%d}", rtn);
-        report_svc_event(
-            EVENTLOG_ERROR_TYPE,
-            message);
-
         spp_svc_set_status(SERVICE_STOPPED, rtn);
         goto cleanup;
     }
@@ -307,6 +286,7 @@ static void WINAPI spp_svc_main(DWORD argc, LPTSTR* argv)
     }
     catch (TCPServer::TCPException e)
     {
+        manager->log(Logger::ERR, SPP_SVC_LOG, "%s {%d}", e.get_error_msg(), e.get_errcode());
         spp_svc_set_status(SERVICE_STOPPED, e.get_errcode());
     }
 
@@ -329,6 +309,10 @@ cleanup:
 DWORD spp_svc_init()
 {
     TCPServerManager* manager;
+    TCHAR path[MAX_PATH];
+    DWORD session_id;
+    HANDLE h_token;
+
     manager = TCPServerManager::get_manager();
 
     // Initialize a service table entry.
@@ -338,12 +322,25 @@ DWORD spp_svc_init()
         { NULL, NULL }
     };
 
+    // Switch to the serverpp local app directory directory.
+    if ((session_id = WTSGetActiveConsoleSessionId()) == 0xFFFFFFFF)
+        return GetLastError();
+
+    if (!WTSQueryUserToken(session_id, &h_token))
+        return GetLastError();
+
+    SHGetFolderPath(NULL, CSIDL_LOCAL_APPDATA, h_token, 0, path);
+    CloseHandle(h_token);
+
+    if (!SetCurrentDirectory(path))
+        return GetLastError();
+
     // Start the service control dispatcher.
     if (!StartServiceCtrlDispatcher(serverpp))
     {
         manager->log(
             TCPServerManager::ERR,
-            stdout,
+            SPP_SVC_LOG,
             "(Win32) Failed to start the service control dispatcher. {%d}",
             GetLastError());
 

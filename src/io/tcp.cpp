@@ -117,14 +117,18 @@ TCPServer::TCPServer(jToken* server)
            type,
             key;
 
+    char error_msg[80];
     int i, rtn;
     FILE* log;
+
+    if (server->type != JCONF_OBJECT)
+        throw TCPException("Server must be an object.");
     
     // Get server port.
     temp = jconf_get(server, "o", "port");
 
     if (temp == NULL || temp->type != JCONF_INT)
-        throw TCPException();
+        throw TCPException("An integer port is required.");
 
     m_port = strtol((char*)temp->data, NULL, 10);
 
@@ -134,18 +138,18 @@ TCPServer::TCPServer(jToken* server)
     if (temp != NULL)
     {
         if (temp->type != JCONF_STRING)
-            throw TCPException();
+            throw TCPException("Traffic log must be a string.");
 
         m_log = string((char*)temp->data);
 
-#if defined(SPP_WINDOWS)
+#if defined(_MSC_VER)
         fopen_s(&log, m_log.c_str(), "ab");
 #else
         log = fopen(m_log.c_str(), "ab");
 #endif
 
         if (log == NULL)
-            throw TCPException();
+            throw TCPException("Failed to open " + m_log);
 
         fclose(log);
     }
@@ -164,7 +168,7 @@ TCPServer::TCPServer(jToken* server)
             location_cert = jconf_get(temp, "o", "cert");
 
             if (location_cert == NULL || location_cert->type != JCONF_STRING)
-                throw TCPException();
+                throw TCPException("An SSL certificate path is required.");
 
             m_cert = string((char*)location_cert->data);
 
@@ -172,7 +176,7 @@ TCPServer::TCPServer(jToken* server)
             location_key = jconf_get(temp, "o", "key");
 
             if (location_key == NULL || location_key->type != JCONF_STRING)
-                throw TCPException();
+                throw TCPException("An SSL key path is required.");
 
             m_ckey = string((char*)location_key->data);
 
@@ -181,7 +185,7 @@ TCPServer::TCPServer(jToken* server)
             SSL_CTX_set_options(m_ssl_ctx, SSL_OP_SINGLE_DH_USE);
 
             if ((rtn = load_certificates(m_ssl_ctx, m_cert.c_str(), m_ckey.c_str())) < 0)
-                throw TCPException();
+                throw TCPException("Failed to load the SSL certificates.");
         }
     }
 
@@ -189,7 +193,7 @@ TCPServer::TCPServer(jToken* server)
     temp = jconf_get(server, "o", "locations");
 
     if (temp == NULL || temp->type != JCONF_ARRAY)
-        throw TCPException();
+        throw TCPException("An array for locations is required.");
 
     locations = (jArray*)temp->data;
 
@@ -197,9 +201,10 @@ TCPServer::TCPServer(jToken* server)
     {
         // Get the type.
         location = jconf_get(temp, "aa", i, 0);
+        sprintf(error_msg, "Invalid location at index %d", i);
 
         if (location == NULL || location->type != JCONF_STRING)
-            throw TCPException();
+            throw TCPException(error_msg);
 
         type = string((char*)location->data);
 
@@ -207,7 +212,7 @@ TCPServer::TCPServer(jToken* server)
         location = jconf_get(temp, "aa", i, 1);
 
         if (location == NULL || location->type != JCONF_STRING)
-            throw TCPException();
+            throw TCPException(error_msg);
 
         key = string((char*)location->data);
 
@@ -215,11 +220,18 @@ TCPServer::TCPServer(jToken* server)
         location = jconf_get(temp, "aa", i, 2);
 
         if (location == NULL)
-            throw TCPException();
+            throw TCPException(error_msg);
 
-        http_location = new HTTPLocation(location, server);
-        m_locations.push_back(http_location);
-        m_uri_map.set_location(type.c_str(), key.c_str(), http_location);
+        try
+        {
+            http_location = new HTTPLocation(location, server);
+            m_locations.push_back(http_location);
+            m_uri_map.set_location(type.c_str(), key.c_str(), http_location);
+        }
+        catch (HTTPException)
+        {
+            throw TCPException(error_msg);
+        }
     }
 }
 
@@ -245,14 +257,21 @@ TCPServer::~TCPServer(void)
 void TCPServer::start(void)
 {
     struct sockaddr_in addr;
-
+    char error_msg[80];
+    int err;
+    
     if (is_running())
         return;
 
     // Create the listening socket.
     if ((m_slisten = socket(AF_INET, SOCK_STREAM, 0)) == INVALID_SOCKET)
     {
-        throw TCPException();
+#if defined(SPP_WINDOWS)
+        err = WSAGetLastError();
+#elif defined(SPP_UNIX)
+        // TODO
+#endif
+        throw TCPException("Failed to initialize the listening socket.", err);
     }
 
     // Bind to the loopback IP and provided port.
@@ -263,20 +282,33 @@ void TCPServer::start(void)
     // Bind the listening socket.
     if (::bind(m_slisten, (struct sockaddr *) &addr, sizeof(addr)) == SOCKET_ERROR)
     {
+        sprintf(error_msg, "Failed to bind the listening socket on port %d.", m_port);
+#if defined(SPP_WINDOWS)
+        err = WSAGetLastError();
+#elif defined(SPP_UNIX)
+        // TODO
+#endif
         closesocket(m_slisten);
-        throw TCPException();
+        throw TCPException(error_msg, err);
     }
 
     // Start listening.
     if (listen(m_slisten, SOMAXCONN) == SOCKET_ERROR)
     {
+#if defined(SPP_WINDOWS)
+        err = WSAGetLastError();
+#elif defined(SPP_UNIX)
+        // TODO
+#endif
         closesocket(m_slisten);
-        throw TCPException();
+        throw TCPException("Listen failed.", err);
     }
 
     // Start the worker thread.
 #if defined(SPP_WINDOWS)
     m_listener = (HANDLE)_beginthreadex(NULL, 0, &tcp_listener, this, 0, NULL);
+#elif defined(SPP_UNIX)
+    // TODO
 #endif
 
     m_stop = false;
@@ -317,7 +349,7 @@ int TCPServer::run(void)
     sockaddr_in addr;
     SOCKET sclient;
     DWORD timeout;
-    errno_t err;
+    int err;
     u_long mode;
     SSL* ssl;
 
@@ -470,7 +502,12 @@ int TCPServer::run(void)
                             TCPServerManager::INFO,
                             m_log.c_str(),
                             "%s:%d %s %s %d",
-                            inet_ntop(AF_INET, &(addr.sin_addr), ip_buffer, INET_ADDRSTRLEN),
+                            #if defined(_MSC_VER)
+                                inet_ntop(AF_INET, &(addr.sin_addr), ip_buffer, INET_ADDRSTRLEN)
+                            #else
+                                inet_ntoa(addr.sin_addr)
+                            #endif
+                            ,
                             ntohs(addr.sin_port),
                             request.get_method().c_str(),
                             request.get_uri().c_str(),

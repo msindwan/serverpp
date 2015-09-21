@@ -34,9 +34,9 @@ void Logger::log(Level level, FILE* file, const char* message, ...)
 
     // Format the time.
     time(&ctime);
-#if defined(SPP_WINDOWS)
+#if defined(_MSC_VER)
     localtime_s(&timeinfo, &ctime);
-#elif defined(__unix__)
+#else
     timeinfo = *localtime(&ctime);
 #endif
 
@@ -78,7 +78,7 @@ bool Logger::log(Level level, const char* file, const char* message, ...)
 
     // Attempt to open the file.
     stream = NULL;
-#if defined(SPP_WINDOWS)
+#if defined(_MSC_VER)
     fopen_s(&stream, file, "ab");
 #else
     stream = fopen(file, "ab");
@@ -89,9 +89,9 @@ bool Logger::log(Level level, const char* file, const char* message, ...)
 
     // Format the time.
     time(&ctime);
-#if defined(SPP_WINDOWS)
+#if defined(_MSC_VER)
     localtime_s(&timeinfo, &ctime);
-#elif defined(__unix__)
+#else
     timeinfo = *localtime(&ctime);
 #endif
 

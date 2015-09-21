@@ -11,6 +11,7 @@
 
 #include "jconf\parser.h"
 #include "collection.h"
+#include <string.h>
 #include "util.h"
 #include <string>
 #include <regex>

@@ -5,7 +5,6 @@
  * Date: 2015-09-18
  */
 
-#include <openssl/applink.c>
 #include <spp/ssl.h>
 
 /**

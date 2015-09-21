@@ -11,7 +11,7 @@
 
 #if defined(SPP_WINDOWS)
     #include <Windows.h>
-#elif defined(__unix__)
+#elif defined(SPP_UNIX)
     #include <mutex>
 #endif
 
@@ -36,7 +36,7 @@ namespace spp
         // Data members.
 #if defined(SPP_WINDOWS)
         CRITICAL_SECTION m_mtx;
-#else
+#elif defined(SPP_UNIX)
         std::recursive_mutex m_mtx;
 #endif
 	};

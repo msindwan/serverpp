@@ -9,6 +9,7 @@
 #ifndef __COLLECTION_SPP_H__
 #define __COLLECTION_SPP_H__
 
+#include <string>
 #include <list>
 
 namespace spp
@@ -50,7 +51,7 @@ namespace spp
 
         void free_nodes(Node* node)
         {
-            std::list<Node*>::iterator it;
+            typename std::list<Node*>::iterator it;
 
             if (node->chars.size() == 0)
             {
@@ -66,19 +67,17 @@ namespace spp
 
     public:
         // Suffix Tree setter.
-        void set(const char* key, T value)
+        void set(std::string key, T value)
         {
-            std::list<Node*>::iterator it;
+            typename std::list<Node*>::iterator it;
             Node *next, *temp, *index;
             unsigned int i;
-            size_t keylen;
             char c;
 
-            keylen = strlen(key);
             temp = m_nodes;
 
             // Process key character by character.
-            for (i = 0; i < keylen; i++)
+            for (i = 0; i < key.length(); i++)
             {
                 c = key[i];
                 index = NULL;
@@ -110,19 +109,17 @@ namespace spp
         }
 
         // Suffix Tree getter.
-        T get(const char* key)
+        T get(std::string key)
         {
-            std::list<Node*>::iterator it;
-            unsigned int i;
-            size_t keylen;
+            typename std::list<Node*>::iterator it;
             Node *temp, *index;
+            unsigned int i;
             char c;
 
-            keylen = strlen(key);
             temp = m_nodes;
 
             // Search for the provided key.
-            for (i = 0; i < keylen; i++)
+            for (i = 0; i < key.length(); i++)
             {
                 c = key[i];
                 index = NULL;
