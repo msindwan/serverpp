@@ -47,7 +47,7 @@ HTTPRequest::HTTPRequest(char* request, size_t size)
       while (key != NULL)
       {
           // Get value.
-#if defined(_MSC_VERs)
+#if defined(_MSC_VER)
           value = strtok_s(NULL, "&", &next);
 #else
           value = strtok(NULL, "&");
@@ -168,7 +168,7 @@ void HTTPUriMap::set_location(const char* type, const char* key, HTTPLocation* l
             m_expressions.push_back(make_pair(regex(key), location));
         }
         // Create a regex rule for errors.
-        else if (!strcmp(SPP_HTTP_ERROR, type) && location->is_proxied())
+        else if (!strcmp(SPP_HTTP_ERROR, type) && !location->is_proxied())
         {
             m_errors.push_back(make_pair(regex(key), location));
         }
