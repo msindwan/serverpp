@@ -13,7 +13,7 @@
     * More efficient send/recv algorithms
     * Improve SSL support
     * additional config features
-* Install config files
+* Install config files (The temporary solution is to move the contents of config to %localappdata%/Serverpp in Windows)
 * Sample Usage
 * Description
 
