@@ -1,0 +1,29 @@
+{
+	"servers":
+	[
+		{
+			"root" : "<root directory>",
+			"traffic_log" : "<root log directory>",
+
+			"port" : 80,
+
+			"ssl": {
+
+				"enabled" : false,
+				"cert": "my_cert.crt",
+				"key" : "my_key.key"
+
+			},
+
+			"locations" : [
+
+				["regex", ".*([A-z]*).(css|js|html|otf|woff|ttf|gif|jpg|png|ico)", null],
+
+				["error", "(404|500)", "/errors/<%code%>_page.html"],
+
+				["map", "/" , "/index.html"]
+
+			]
+		}
+	]
+}
