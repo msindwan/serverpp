@@ -8,6 +8,7 @@
 ### TODO ###
 
 * Linux Implementation
+* Consider protocol buffers + endianness
 * Optimizations + caching
     * Complete HTTP Codes
     * More efficient send/recv algorithms
