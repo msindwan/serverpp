@@ -1,3 +1,3 @@
 [submodule "ext/jconf"]
 	path = ext/jconf
-	url = https://msindwan@bitbucket.org/msindwan/jconf.git
+	url = https://github.com/msindwan/jconf.git
